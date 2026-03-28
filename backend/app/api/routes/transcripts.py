@@ -1,16 +1,18 @@
-"""Live caption ingestion → buffer → persisted version → Celery + SSE."""
+"""Live caption ingestion → buffer → persisted version → async pipeline + SSE."""
 
 from __future__ import annotations
+
+import asyncio
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
 from app.api.deps import get_transcript_repository
-from app.core.redis_events import publish_session_json
+from app.core.event_bus import publish
 from app.core.streaming import buffer_registry
 from app.persistence.transcripts.repository import TranscriptRepository
 from app.schemas.events import SSEEvent
-from app.tasks.jobs.on_transcript_saved import on_transcript_saved
+from app.tasks.pipeline import on_transcript_saved
 
 router = APIRouter(tags=["transcripts"])
 
@@ -39,8 +41,8 @@ async def ingest_chunk(
         text = await buf.take()
         if text.strip():
             rec = repo.commit(body.session_id, text.strip(), source=body.source, meta={"role": body.role})
-            on_transcript_saved.delay(body.session_id, rec.version, rec.text)
-            publish_session_json(
+            asyncio.create_task(on_transcript_saved(body.session_id, rec.version, rec.text))
+            await publish(
                 body.session_id,
                 SSEEvent(event="transcript", data=rec.model_dump()).model_dump(),
             )
@@ -57,8 +59,8 @@ async def flush(
     if not text.strip():
         return {"ok": True, "committed": False}
     rec = repo.commit(body.session_id, text.strip(), source=body.source)
-    on_transcript_saved.delay(body.session_id, rec.version, rec.text)
-    publish_session_json(
+    asyncio.create_task(on_transcript_saved(body.session_id, rec.version, rec.text))
+    await publish(
         body.session_id,
         SSEEvent(event="transcript", data=rec.model_dump()).model_dump(),
     )

@@ -1,13 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useId } from "react";
 import VoiceChat from "./voice-chat";
 import { LiveCanvasPanel } from "../LiveCanvasPanel";
 
 export function VoiceCanvasLayout() {
-  const [sessionId] = useState(
-    () => `session-${Math.random().toString(36).slice(2, 10)}`
-  );
+  // useId is stable across SSR + hydration; Math.random() in useState is not.
+  const reactId = useId();
+  const sessionId = `session-${reactId.replace(/[^a-zA-Z0-9]/g, "")}`;
 
   return (
     <div className="h-full w-full grid grid-cols-2">

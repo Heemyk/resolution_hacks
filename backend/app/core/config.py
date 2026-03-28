@@ -10,11 +10,10 @@ class Settings(BaseSettings):
 
     api_host: str = "0.0.0.0"
     api_port: int = 8000
-    cors_origins: str = "http://localhost:3000"
-
-    redis_url: str = "redis://127.0.0.1:6379/0"
-    celery_broker_url: str = "redis://127.0.0.1:6379/0"
-    celery_result_backend: str = "redis://127.0.0.1:6379/1"
+    cors_origins: str = (
+        "http://localhost:3000,http://localhost:3001,"
+        "http://127.0.0.1:3000,http://127.0.0.1:3001"
+    )
 
     data_dir: Path = _BACKEND_ROOT / "data"
     skills_dir: Path = _BACKEND_ROOT / "app" / "skills" / "bundled"

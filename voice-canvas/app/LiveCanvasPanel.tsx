@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useId } from "react";
 import { CanvasHost, useSessionSSE } from "@resolution/ui";
 
 interface LiveCanvasPanelProps {
@@ -9,8 +9,9 @@ interface LiveCanvasPanelProps {
 
 export function LiveCanvasPanel({ sessionId: externalSessionId }: LiveCanvasPanelProps = {}) {
   const apiBase = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
-  const [internalSessionId] = useState(() => `demo-${Math.random().toString(36).slice(2, 10)}`);
-  const sessionId = externalSessionId ?? internalSessionId;
+  const fallbackId = useId();
+  const sessionId =
+    externalSessionId ?? `demo-${fallbackId.replace(/[^a-zA-Z0-9]/g, "")}`;
   const { last, connected } = useSessionSSE(apiBase, sessionId);
 
   return (
