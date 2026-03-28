@@ -253,54 +253,54 @@ function TimelineBar({
             style={{
               background: "var(--card)",
               borderColor: "var(--border)",
-              boxShadow: "var(--block-shadow)",
+              boxShadow: "0 2px 8px 0 hsl(24 10% 10% / 0.10)",
             }}
           >
-            <div className="flex items-center gap-1 px-4 py-2.5 overflow-x-auto scrollbar-none">
+            <div className="flex items-center gap-1.5 px-4 py-3 overflow-x-auto scrollbar-none">
               <Clock
-                className="h-3 w-3 shrink-0 mr-1"
-                style={{ color: "var(--muted-foreground)", opacity: 0.5 }}
+                className="h-3.5 w-3.5 shrink-0 mr-1.5"
+                style={{ color: "var(--foreground)", opacity: 0.4 }}
               />
               {snapshots.map((snap, i) => {
                 const isActive = i === activeIndex;
                 const isLast = i === snapshots.length - 1;
                 return (
-                  <div key={snap.id} className="flex items-center gap-1 shrink-0">
+                  <div key={snap.id} className="flex items-center gap-1.5 shrink-0">
                     <button
                       onClick={() => onSelect(i)}
-                      className="flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs transition-all duration-150"
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-medium transition-all duration-150"
                       style={{
-                        background: isActive ? "var(--accent)" : "var(--muted)",
-                        borderColor: isActive ? "var(--accent)" : "var(--border)",
-                        color: isActive ? "white" : "var(--muted-foreground)",
-                        fontWeight: isActive ? 600 : 400,
-                        boxShadow: isActive ? "var(--block-shadow)" : "none",
+                        background: isActive ? "var(--accent)" : "var(--card)",
+                        borderColor: isActive ? "var(--accent)" : "hsl(24 10% 78%)",
+                        color: isActive ? "white" : "var(--foreground)",
+                        fontWeight: isActive ? 600 : 500,
+                        opacity: isActive ? 1 : 0.75,
+                        boxShadow: isActive
+                          ? "0 1px 4px 0 hsl(24 80% 55% / 0.35)"
+                          : "0 1px 2px 0 hsl(24 10% 10% / 0.06)",
                       }}
                     >
                       {snap.mode === "direct"
-                        ? <MessageSquare className="h-2.5 w-2.5 shrink-0" />
-                        : <Mic className="h-2.5 w-2.5 shrink-0" />
+                        ? <MessageSquare className="h-3 w-3 shrink-0" />
+                        : <Mic className="h-3 w-3 shrink-0" />
                       }
-                      <span>{fmt(snap.ts)}</span>
+                      <span className="tabular-nums">{fmt(snap.ts)}</span>
                       {snap.focus && (
-                        <span
-                          className="max-w-32 truncate"
-                          style={{ opacity: isActive ? 0.9 : 0.7 }}
-                        >
+                        <span className="max-w-36 truncate">
                           · {snap.focus}
                         </span>
                       )}
                       {isLast && (
                         <span
                           className="inline-block w-1.5 h-1.5 rounded-full shrink-0"
-                          style={{ background: isActive ? "rgba(255,255,255,0.7)" : "var(--accent)" }}
+                          style={{ background: isActive ? "rgba(255,255,255,0.8)" : "var(--accent)" }}
                         />
                       )}
                     </button>
                     {i < snapshots.length - 1 && (
                       <div
-                        className="w-3 h-px shrink-0"
-                        style={{ background: "var(--border)" }}
+                        className="w-4 h-px shrink-0"
+                        style={{ background: "hsl(24 10% 82%)" }}
                       />
                     )}
                   </div>

@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import structlog
 
-from app.api.routes import health, sse, transcripts
+from app.api.routes import health, search, sse, transcripts
 from app.api.deps import get_transcript_repository
 from app.core.config import settings
 from app.core.event_bus import publish
@@ -79,3 +79,4 @@ app.add_middleware(HttpAuditMiddleware)
 app.include_router(health.router, prefix="/api")
 app.include_router(transcripts.router, prefix="/api/transcripts")
 app.include_router(sse.router, prefix="/api/sse")
+app.include_router(search.router, prefix="/api/search")

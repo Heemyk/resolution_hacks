@@ -3,6 +3,7 @@ from functools import lru_cache
 from app.agent.orchestrator import Orchestrator
 from app.core.config import settings
 from app.persistence.transcripts.repository import TranscriptRepository
+from app.services.adapters.image_search import ImageSearchAdapter
 from app.services.adapters.llm import LLMAdapter
 from app.services.adapters.web_search import WebSearchAdapter
 from app.skills.registry import SkillRegistry
@@ -21,6 +22,11 @@ def get_llm_adapter() -> LLMAdapter:
 @lru_cache
 def get_web_search_adapter() -> WebSearchAdapter:
     return WebSearchAdapter()
+
+
+@lru_cache
+def get_image_search_adapter() -> ImageSearchAdapter:
+    return ImageSearchAdapter()
 
 
 @lru_cache

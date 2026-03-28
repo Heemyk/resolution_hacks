@@ -11,6 +11,7 @@ import structlog
 
 from app.agent.context import build_system_prompt
 from app.agent.memory import ChatMessage, MessageWindow
+from app.services.adapters.image_search import ImageSearchAdapter
 from app.services.adapters.llm import LLMAdapter
 from app.services.adapters.web_search import WebSearchAdapter
 from app.skills.loader import discover_skill_ids
@@ -43,15 +44,15 @@ EXA_SEARCH_TOOL: dict[str, Any] = {
     },
 }
 
-EXA_IMAGE_SEARCH_TOOL: dict[str, Any] = {
-    "name": "exa_image_search",
+IMAGE_SEARCH_TOOL: dict[str, Any] = {
+    "name": "image_search",
     "description": (
-        "Search the web for images related to a topic using Exa. "
-        "Returns a JSON array of image URLs with titles. "
-        "Use this when the user's transcript or question would benefit from visual illustrations, "
-        "diagrams, photos, or infographics — e.g. showing what something looks like, "
-        "comparing visual examples, or illustrating a concept with real images. "
-        "Emit the results as image UIBlocks: [{\"kind\": \"image\", \"payload\": {\"url\": \"...\", \"caption\": \"...\"}}]"
+        "Search Google Images for photos, diagrams, or visual examples of a topic. "
+        "Returns a JSON array of image URLs with titles and source links. "
+        "Use this when the user's transcript or question would benefit from visual illustrations — "
+        "e.g. showing what something looks like, comparing visual examples, or illustrating a concept. "
+        "After calling this tool, emit the results as image UIBlocks in your final JSON array: "
+        "[{\"kind\": \"image\", \"payload\": {\"url\": \"...\", \"caption\": \"...\", \"source_url\": \"...\"}}]"
     ),
     "input_schema": {
         "type": "object",
@@ -77,11 +78,13 @@ class AgentRuntime:
         llm: LLMAdapter,
         skills: SkillRegistry,
         search: WebSearchAdapter | None = None,
+        image_search: ImageSearchAdapter | None = None,
         model: str = "claude-sonnet-4-20250514",
     ) -> None:
         self._llm = llm
         self._skills = skills
         self._search = search
+        self._img_search = image_search
         self.model = model
         self.window = MessageWindow()
 
@@ -100,14 +103,19 @@ class AgentRuntime:
             log.error("agent.exa_search_error", query=query, error=str(exc))
             return f"Search failed: {exc}"
 
-    async def _exa_image_search(self, query: str, num_results: int = 4) -> str:
-        if not self._search:
-            return "Web search is not available."
+    async def _do_image_search(self, query: str, num_results: int = 4) -> str:
+        if not self._img_search:
+            return "Image search is not available."
+        import json
         try:
-            results = await self._search.search_images(query, num_results=num_results)
-            return self._search.format_images_for_llm(results)
+            results = await self._img_search.search(query, num_results=num_results)
+            formatted = [
+                {"url": r["url"], "caption": r.get("alt", query), "source_url": r.get("source", "")}
+                for r in results if r.get("url")
+            ]
+            return json.dumps(formatted)
         except Exception as exc:
-            log.error("agent.exa_image_search_error", query=query, error=str(exc))
+            log.error("agent.image_search_error", query=query, error=str(exc))
             return f"Image search failed: {exc}"
 
     async def run_turn(
@@ -133,11 +141,14 @@ class AgentRuntime:
             extra_messages=extra_messages,
         )
 
-        tools = [EXA_SEARCH_TOOL, EXA_IMAGE_SEARCH_TOOL] if self._search else []
-        tool_fns = {
-            "exa_search": self._exa_search,
-            "exa_image_search": self._exa_image_search,
-        } if self._search else {}
+        tools: list[dict[str, Any]] = []
+        tool_fns: dict[str, Any] = {}
+        if self._search:
+            tools.append(EXA_SEARCH_TOOL)
+            tool_fns["exa_search"] = self._exa_search
+        if self._img_search:
+            tools.append(IMAGE_SEARCH_TOOL)
+            tool_fns["image_search"] = self._do_image_search
 
         if tools:
             response = await self._llm.run_with_tools(

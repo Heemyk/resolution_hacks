@@ -22,6 +22,7 @@ import structlog
 from app.agent.memory import ChatMessage
 from app.agent.runtime import AgentRuntime
 from app.api.deps import (
+    get_image_search_adapter,
     get_llm_adapter,
     get_orchestrator,
     get_skill_registry,
@@ -74,6 +75,7 @@ def _runtime(session_id: str) -> AgentRuntime:
             llm=get_llm_adapter(),
             skills=get_skill_registry(),
             search=get_web_search_adapter(),
+            image_search=get_image_search_adapter(),
         )
     return _runtimes[session_id]
 
