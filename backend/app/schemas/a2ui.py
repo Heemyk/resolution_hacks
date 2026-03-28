@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 
 class UIBlock(BaseModel):
-    kind: Literal["component", "mermaid", "image", "markdown", "raw_html"]
+    kind: Literal["component", "mermaid", "image", "markdown", "raw_html", "chartjs"]
     id: str
     payload: dict[str, Any] = Field(default_factory=dict)
 

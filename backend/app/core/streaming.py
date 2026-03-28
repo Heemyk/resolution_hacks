@@ -84,5 +84,15 @@ class BufferRegistry:
             )
         return self._buffers[session_id]
 
+    def stale_sessions(self) -> list[str]:
+        """Return session IDs whose buffer has content and hasn't been appended to in > flush_ms."""
+        threshold_s = settings.transcript_buffer_flush_ms / 1000.0
+        now = time.monotonic()
+        return [
+            sid
+            for sid, buf in self._buffers.items()
+            if buf.text and (now - buf.last_append_at) >= threshold_s
+        ]
+
 
 buffer_registry = BufferRegistry()
