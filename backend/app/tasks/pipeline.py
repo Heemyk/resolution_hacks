@@ -17,7 +17,7 @@ import structlog
 
 from app.agent.memory import ChatMessage
 from app.agent.runtime import AgentRuntime
-from app.api.deps import get_llm_adapter, get_skill_registry
+from app.api.deps import get_llm_adapter, get_skill_registry, get_web_search_adapter
 from app.core.event_bus import publish
 from app.schemas.a2ui import A2UIRenderJob, UIBlock
 from app.schemas.events import SSEEvent
@@ -57,6 +57,7 @@ def _runtime(session_id: str) -> AgentRuntime:
         _runtimes[session_id] = AgentRuntime(
             llm=get_llm_adapter(),
             skills=get_skill_registry(),
+            search=get_web_search_adapter(),
         )
     return _runtimes[session_id]
 
@@ -109,10 +110,20 @@ async def run_render_job(session_id: str, job_id: str, version: int, text: str) 
     async with lock:
         log.info("pipeline.render_start", version=version, runtimes_cached=len(_runtimes))
         runtime = _runtime(session_id)
+
+        async def _on_tool_result(tool_name: str, tool_input: dict, result: str) -> None:
+            ev = SSEEvent(
+                event="tool_result",
+                data={"tool": tool_name, "input": tool_input, "preview": result[:1000]},
+            )
+            log.info("pipeline.tool_result_publish", tool_name=tool_name, input=tool_input)
+            await publish(session_id, ev.model_dump())
+
         chunks: list[str] = []
         async for chunk in runtime.run_turn(
             user_text=text,
             system_base=_SYSTEM_PROMPT,
+            on_tool_result=_on_tool_result,
         ):
             chunks.append(chunk)
             log.debug("pipeline.llm_chunk", chunk_len=len(chunk), total_chars=sum(len(c) for c in chunks))

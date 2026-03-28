@@ -2,6 +2,7 @@ from functools import lru_cache
 
 from app.persistence.transcripts.repository import TranscriptRepository
 from app.services.adapters.llm import LLMAdapter
+from app.services.adapters.web_search import WebSearchAdapter
 from app.skills.registry import SkillRegistry
 
 
@@ -13,6 +14,11 @@ def get_transcript_repository() -> TranscriptRepository:
 @lru_cache
 def get_llm_adapter() -> LLMAdapter:
     return LLMAdapter()
+
+
+@lru_cache
+def get_web_search_adapter() -> WebSearchAdapter:
+    return WebSearchAdapter()
 
 
 @lru_cache
