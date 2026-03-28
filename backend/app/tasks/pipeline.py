@@ -17,7 +17,7 @@ import structlog
 
 from app.agent.memory import ChatMessage
 from app.agent.runtime import AgentRuntime
-from app.api.deps import get_llm_adapter, get_skill_registry
+from app.api.deps import get_image_search_adapter, get_llm_adapter, get_skill_registry
 from app.core.event_bus import publish
 from app.schemas.a2ui import A2UIRenderJob, UIBlock
 from app.schemas.events import SSEEvent
@@ -36,10 +36,14 @@ _SYSTEM_PROMPT = (
     "Respond ONLY with a JSON array of canvas blocks. No prose, no markdown fences, no text outside the JSON.\n\n"
     "Each block must have one of these shapes:\n"
     '  {"kind": "markdown", "payload": {"text": "..."}}\n'
-    '  {"kind": "chartjs", "payload": {"config": <Chart.js config object>}}\n\n'
+    '  {"kind": "chartjs", "payload": {"config": <Chart.js config object>}}\n'
+    '  {"kind": "image", "payload": {"url": "https://...", "alt": "description"}}\n\n'
     "Rules:\n"
     "- Always include at least one markdown block.\n"
     "- Add a chartjs block whenever the content involves data, metrics, or comparisons.\n"
+    "- Add image blocks when the topic is visual — landmarks, people, products, animals, art, etc. "
+    "Use real, publicly accessible image URLs (Wikipedia Commons, Unsplash, official sites). "
+    "Only include an image block if you are confident the URL exists and is a direct image link.\n"
     "- Chart.js config must be pure JSON (no JS functions, no undefined).\n"
     "- Set responsive: true in chart options.\n"
     "- Supported chart types: bar, line, pie, doughnut, radar, scatter."
@@ -101,6 +105,28 @@ def _parse_blocks(response: str) -> list[UIBlock]:
     return [UIBlock(kind="markdown", id=str(uuid.uuid4()), payload={"text": response})]
 
 
+async def _fetch_images(query: str) -> list[dict]:
+    """Fetch image results from Serper. Returns empty list on any failure."""
+    try:
+        adapter = get_image_search_adapter()
+        results = await adapter.search(query, num_results=4)
+        log.info("pipeline.image_search_ok", query=query, count=len(results))
+        return results
+    except Exception as exc:
+        log.warning("pipeline.image_search_failed", query=query, error=str(exc))
+        return []
+
+
+def _image_context(images: list[dict]) -> str:
+    """Format image results as an injection into the system prompt."""
+    if not images:
+        return ""
+    lines = ["", "Available images for this response (use these exact URLs):"]
+    for img in images:
+        lines.append(f'  url={img["url"]}  alt={img["alt"]}')
+    return "\n".join(lines)
+
+
 async def run_render_job(session_id: str, job_id: str, version: int, text: str) -> None:
     """Run one agent turn and push resulting UIBlocks to open SSE connections."""
     structlog.contextvars.bind_contextvars(session_id=session_id, job_id=job_id)
@@ -108,11 +134,15 @@ async def run_render_job(session_id: str, job_id: str, version: int, text: str) 
     log.info("pipeline.render_wait_lock", version=version, user_text=text)
     async with lock:
         log.info("pipeline.render_start", version=version, runtimes_cached=len(_runtimes))
+
+        images = await _fetch_images(text)
+        system = _SYSTEM_PROMPT + _image_context(images)
+
         runtime = _runtime(session_id)
         chunks: list[str] = []
         async for chunk in runtime.run_turn(
             user_text=text,
-            system_base=_SYSTEM_PROMPT,
+            system_base=system,
         ):
             chunks.append(chunk)
             log.debug("pipeline.llm_chunk", chunk_len=len(chunk), total_chars=sum(len(c) for c in chunks))

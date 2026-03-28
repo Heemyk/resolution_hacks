@@ -81,6 +81,19 @@ function BlockRenderer({ block }: { block: UIBlock }) {
     );
   }
 
+  if (block.kind === "image") {
+    const url = String(block.payload.url ?? "");
+    const alt = String(block.payload.alt ?? "");
+    if (!url) return null;
+    return (
+      <img
+        src={url}
+        alt={alt}
+        className="rounded-md max-w-full object-contain"
+      />
+    );
+  }
+
   return (
     <pre className="text-xs text-zinc-400 overflow-auto">
       {JSON.stringify(block.payload, null, 2)}
