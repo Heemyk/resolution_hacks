@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git fetch:*)",
+      "Bash(git pull:*)",
+      "Bash(git stash:*)",
+      "Bash(npm install:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npm run:*)",
+      "Bash(rm:*)",
+      "Bash(python -c \":*)",
+      "Bash(.venv/Scripts/python.exe -c \"\nimport sys, importlib\nmods = ['fastapi', 'celery', 'redis', 'anthropic', 'pydantic_settings', 'sse_starlette']\nfor m in mods:\n    try:\n        importlib.import_module\\(m\\)\n        print\\(f'OK  {m}'\\)\n    except ImportError as e:\n        print\\(f'MISS {m}: {e}'\\)\n\" 2>&1)",
+      "Bash(.venv/Scripts/python.exe -c \"\nimport sys\nsys.path.insert\\(0, '.'\\)\nimport app.schemas.a2ui as m\nprint\\(dir\\(m\\)\\)\n\" 2>&1)",
+      "Bash(docker compose:*)"
+    ]
+  }
+}

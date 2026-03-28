@@ -2,15 +2,20 @@
 
 import { useState, useRef, useCallback, useEffect } from "react";
 import { GoogleGenAI, Modality, type LiveServerMessage } from "@google/genai";
+import AudioVisualizer from "./audio-visualizer";
 
 interface TranscriptEntry {
-  role: "user" | "gemini";
   text: string;
   timestamp: Date;
 }
 
+interface VoiceChatProps {
+  sessionId?: string;
+}
+
 const MODEL = "gemini-3.1-flash-live-preview";
 const AUDIO_SAMPLE_RATE = 16000;
+const API_KEY = process.env.NEXT_PUBLIC_GEMINI_API_KEY!;
 
 function pcmBufferToBase64(float32: Float32Array): string {
   const int16 = new Int16Array(float32.length);
@@ -20,124 +25,87 @@ function pcmBufferToBase64(float32: Float32Array): string {
   }
   const bytes = new Uint8Array(int16.buffer);
   let binary = "";
-  for (let i = 0; i < bytes.length; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
   return btoa(binary);
 }
 
-export default function VoiceChat() {
+export default function VoiceChat({ sessionId = "default" }: VoiceChatProps) {
   const [isConnected, setIsConnected] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
-  const [status, setStatus] = useState("Disconnected");
-  const [apiKey, setApiKey] = useState(
-    process.env.NEXT_PUBLIC_GEMINI_API_KEY ?? ""
-  );
-  const [showKeyInput, setShowKeyInput] = useState(
-    !process.env.NEXT_PUBLIC_GEMINI_API_KEY
-  );
+  const [status, setStatus] = useState("Connecting...");
+  const [analyserNode, setAnalyserNode] = useState<AnalyserNode | null>(null);
 
   const sessionRef = useRef<Awaited<
     ReturnType<InstanceType<typeof GoogleGenAI>["live"]["connect"]>
   > | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const workletNodeRef = useRef<AudioWorkletNode | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
+  const hasConnected = useRef(false);
+  const apiBase = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
 
-  // Auto-scroll transcript
   useEffect(() => {
     transcriptEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [transcript]);
 
-  const enqueueTask = useCallback(
-    (role: "user" | "gemini", text: string) => {
-      fetch("/api/tasks", {
+  const ingestTranscript = useCallback(
+    (text: string) => {
+      // Persist to backend → buffer → Celery on_transcript_saved → render pipeline → SSE → canvas
+      fetch(`${apiBase}/api/transcripts/ingest`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          action: "enqueue",
-          payload: { role, text, timestamp: new Date().toISOString() },
+          session_id: sessionId,
+          role: "user",
+          text,
+          timestamp: new Date().toISOString(),
         }),
-      }).catch((err) => console.error("Failed to enqueue task:", err));
+      }).catch((err) => console.error("Failed to ingest transcript:", err));
     },
-    []
+    [apiBase, sessionId],
   );
 
   const appendTranscript = useCallback(
-    (role: "user" | "gemini", text: string) => {
+    (text: string) => {
       if (!text.trim()) return;
-      enqueueTask(role, text);
+      ingestTranscript(text);
       setTranscript((prev) => {
-        // Merge consecutive entries from the same role
         const last = prev[prev.length - 1];
-        if (last && last.role === role) {
-          return [
-            ...prev.slice(0, -1),
-            { ...last, text: last.text + text },
-          ];
+        if (last) {
+          return [...prev.slice(0, -1), { ...last, text: last.text + text }];
         }
-        return [...prev, { role, text, timestamp: new Date() }];
+        return [...prev, { text, timestamp: new Date() }];
       });
     },
-    [enqueueTask]
+    [ingestTranscript],
   );
 
-  const connect = useCallback(async () => {
-    if (!apiKey) {
-      setShowKeyInput(true);
-      return;
-    }
-
-    try {
-      setStatus("Connecting...");
-
-      const ai = new GoogleGenAI({ apiKey });
-
-      const session = await ai.live.connect({
-        model: MODEL,
-        config: {
-          responseModalities: [Modality.AUDIO],
-        },
-        callbacks: {
-          onopen: () => {
-            setStatus("Connected");
-            setIsConnected(true);
-          },
-          onmessage: (message: LiveServerMessage) => {
-            const content = message.serverContent;
-            if (content?.inputTranscription?.text) {
-              appendTranscript("user", content.inputTranscription.text);
-            }
-            if (content?.outputTranscription?.text) {
-              appendTranscript("gemini", content.outputTranscription.text);
-            }
-          },
-          onerror: (e: ErrorEvent) => {
-            console.error("Session error:", e);
-            setStatus(`Error: ${e.message ?? "Unknown"}`);
-          },
-          onclose: () => {
-            setStatus("Disconnected");
-            setIsConnected(false);
-            setIsRecording(false);
-          },
-        },
-      });
-
-      sessionRef.current = session;
-    } catch (err) {
-      console.error("Connection failed:", err);
-      setStatus(
-        `Failed: ${err instanceof Error ? err.message : "Unknown error"}`
-      );
-    }
-  }, [apiKey, appendTranscript]);
+  const stopRecording = useCallback(() => {
+    workletNodeRef.current?.disconnect();
+    workletNodeRef.current = null;
+    analyserRef.current = null;
+    setAnalyserNode(null);
+    audioContextRef.current?.close();
+    audioContextRef.current = null;
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+    setIsRecording(false);
+    // Flush buffered transcript chunks so nothing is lost between recording sessions
+    fetch(`${apiBase}/api/transcripts/flush`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ session_id: sessionId }),
+    }).catch((err) => console.error("Failed to flush transcript:", err));
+    // Seal current transcript entry so next recording starts fresh
+    setTranscript((prev) => [...prev, { text: "", timestamp: new Date() }]);
+    setStatus("Connected — tap the circle to record");
+  }, [apiBase, sessionId]);
 
   const startRecording = useCallback(async () => {
     if (!sessionRef.current) return;
-
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -152,7 +120,6 @@ export default function VoiceChat() {
       const audioContext = new AudioContext({ sampleRate: AUDIO_SAMPLE_RATE });
       audioContextRef.current = audioContext;
 
-      // Load PCM processor worklet
       const workletCode = `
         class PCMProcessor extends AudioWorkletProcessor {
           process(inputs) {
@@ -174,148 +141,142 @@ export default function VoiceChat() {
       const workletNode = new AudioWorkletNode(audioContext, "pcm-processor");
       workletNodeRef.current = workletNode;
 
+      const analyser = audioContext.createAnalyser();
+      analyser.fftSize = 512;
+      analyser.smoothingTimeConstant = 0.8;
+      analyserRef.current = analyser;
+      setAnalyserNode(analyser);
+
       workletNode.port.onmessage = (event: MessageEvent<Float32Array>) => {
         if (sessionRef.current) {
-          const base64 = pcmBufferToBase64(event.data);
           sessionRef.current.sendRealtimeInput({
-            audio: {
-              data: base64,
-              mimeType: "audio/pcm;rate=16000",
-            },
+            audio: { data: pcmBufferToBase64(event.data), mimeType: "audio/pcm;rate=16000" },
           });
         }
       };
 
-      source.connect(workletNode);
+      source.connect(analyser);
+      analyser.connect(workletNode);
       workletNode.connect(audioContext.destination);
 
       setIsRecording(true);
       setStatus("Recording...");
     } catch (err) {
       console.error("Mic error:", err);
-      setStatus(
-        `Mic error: ${err instanceof Error ? err.message : "Unknown"}`
-      );
+      setStatus(`Mic error: ${err instanceof Error ? err.message : "Unknown"}`);
     }
   }, []);
 
-  const stopRecording = useCallback(() => {
-    workletNodeRef.current?.disconnect();
-    workletNodeRef.current = null;
-    audioContextRef.current?.close();
-    audioContextRef.current = null;
-    streamRef.current?.getTracks().forEach((t) => t.stop());
-    streamRef.current = null;
-    setIsRecording(false);
-    setStatus("Connected");
-  }, []);
+  const toggleRecording = useCallback(() => {
+    if (isRecording) stopRecording();
+    else startRecording();
+  }, [isRecording, stopRecording, startRecording]);
 
-  const disconnect = useCallback(() => {
-    stopRecording();
-    sessionRef.current?.close();
-    sessionRef.current = null;
-    setIsConnected(false);
-    setStatus("Disconnected");
-  }, [stopRecording]);
+  // Auto-connect on mount
+  useEffect(() => {
+    if (hasConnected.current) return;
+    hasConnected.current = true;
+
+    async function connect() {
+      try {
+        const ai = new GoogleGenAI({ apiKey: API_KEY });
+        const session = await ai.live.connect({
+          model: MODEL,
+          config: {
+            responseModalities: [Modality.AUDIO],
+            inputAudioTranscription: {},
+            systemInstruction:
+              "You are a silent transcription assistant. Respond with only a single word: 'ok'. Keep responses as short as possible.",
+          },
+          callbacks: {
+            onopen: () => {
+              setStatus("Connected — tap the circle to record");
+              setIsConnected(true);
+            },
+            onmessage: (message: LiveServerMessage) => {
+              const content = message.serverContent;
+              if (content?.inputTranscription?.text) {
+                appendTranscript(content.inputTranscription.text);
+              }
+            },
+            onerror: (e: ErrorEvent) => {
+              console.error("Session error:", e);
+              setStatus(`Error: ${e.message ?? "Unknown"}`);
+            },
+            onclose: () => {
+              setStatus("Disconnected");
+              setIsConnected(false);
+              setIsRecording(false);
+            },
+          },
+        });
+        sessionRef.current = session;
+      } catch (err) {
+        console.error("Connection failed:", err);
+        setStatus(`Failed: ${err instanceof Error ? err.message : "Unknown error"}`);
+      }
+    }
+
+    connect();
+    return () => {
+      sessionRef.current?.close();
+      sessionRef.current = null;
+    };
+  }, [appendTranscript]);
+
+  const filteredTranscript = transcript.filter((e) => e.text.trim());
 
   return (
-    <div className="w-full max-w-2xl flex flex-col gap-6">
-      {/* Status bar */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <div
-            className={`w-2.5 h-2.5 rounded-full ${
-              isRecording
-                ? "bg-red-500 animate-pulse"
-                : isConnected
-                  ? "bg-green-500"
-                  : "bg-zinc-400"
-            }`}
-          />
-          <span className="text-sm text-foreground/60">{status}</span>
-        </div>
-        {!showKeyInput && (
-          <button
-            onClick={() => setShowKeyInput(true)}
-            className="text-xs text-foreground/40 hover:text-foreground/60 transition-colors"
-          >
-            Change API key
-          </button>
-        )}
-      </div>
-
-      {/* Controls */}
-      <div className="flex gap-3 justify-center">
-        {!isConnected ? (
-          <button
-            onClick={connect}
-            disabled={!apiKey}
-            className="px-6 py-3 rounded-full bg-blue-600 text-white font-medium hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-          >
-            Connect
-          </button>
-        ) : (
-          <>
-            <button
-              onClick={isRecording ? stopRecording : startRecording}
-              className={`px-6 py-3 rounded-full font-medium transition-colors ${
+    <div className="h-full w-full flex flex-col">
+      {/* Visualizer — fills available height; clicking inner circle toggles recording */}
+      <div className="relative flex-1 min-h-0">
+        <AudioVisualizer
+          analyserNode={analyserNode}
+          isRecording={isRecording}
+          onCircleClick={toggleRecording}
+        />
+        {/* Status overlay */}
+        <div className="absolute bottom-3 left-0 right-0 flex justify-center pointer-events-none">
+          <div className="flex items-center gap-2 bg-black/50 backdrop-blur-sm rounded-full px-4 py-1.5">
+            <div
+              className={`w-2 h-2 rounded-full ${
                 isRecording
-                  ? "bg-red-600 text-white hover:bg-red-700"
-                  : "bg-green-600 text-white hover:bg-green-700"
+                  ? "bg-red-500 animate-pulse"
+                  : isConnected
+                    ? "bg-green-500"
+                    : "bg-zinc-400"
               }`}
-            >
-              {isRecording ? "Stop Mic" : "Start Mic"}
-            </button>
-            <button
-              onClick={disconnect}
-              className="px-6 py-3 rounded-full border border-foreground/20 text-foreground font-medium hover:bg-foreground/5 transition-colors"
-            >
-              Disconnect
-            </button>
-          </>
-        )}
-      </div>
-
-      {/* Transcript */}
-      <div className="border border-foreground/10 rounded-xl overflow-hidden">
-        <div className="px-4 py-3 border-b border-foreground/10 bg-foreground/[0.02]">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold">Transcript</h2>
-            {transcript.length > 0 && (
-              <button
-                onClick={() => setTranscript([])}
-                className="text-xs text-foreground/40 hover:text-foreground/60 transition-colors"
-              >
-                Clear
-              </button>
-            )}
+            />
+            <span className="text-xs text-white/70">{status}</span>
           </div>
         </div>
-        <div className="h-96 overflow-y-auto p-4 space-y-3">
-          {transcript.length === 0 ? (
-            <p className="text-sm text-foreground/30 text-center mt-16">
-              Connect and start speaking to see the transcript here.
+      </div>
+
+      {/* Transcript panel — fixed height, scrollable */}
+      <div className="shrink-0 border-t border-foreground/10">
+        <div className="px-4 py-2.5 border-b border-foreground/5 flex items-center justify-between">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-foreground/40">
+            Transcript
+          </h2>
+          {filteredTranscript.length > 0 && (
+            <button
+              onClick={() => setTranscript([])}
+              className="text-[10px] text-foreground/30 hover:text-foreground/60 transition-colors"
+            >
+              Clear
+            </button>
+          )}
+        </div>
+        <div className="h-40 overflow-y-auto p-4 space-y-2">
+          {filteredTranscript.length === 0 ? (
+            <p className="text-xs text-foreground/20 text-center mt-10">
+              Tap the circle to start recording.
             </p>
           ) : (
-            transcript.map((entry, i) => (
-              <div
-                key={i}
-                className={`flex gap-3 ${
-                  entry.role === "user" ? "justify-end" : "justify-start"
-                }`}
-              >
-                <div
-                  className={`max-w-[80%] px-4 py-2 rounded-2xl text-sm ${
-                    entry.role === "user"
-                      ? "bg-blue-600 text-white rounded-br-md"
-                      : "bg-foreground/[0.06] text-foreground rounded-bl-md"
-                  }`}
-                >
-                  <div className="text-[10px] opacity-60 mb-1">
-                    {entry.role === "user" ? "You" : "Gemini"}
-                  </div>
-                  {entry.text}
-                </div>
+            filteredTranscript.map((entry, i) => (
+              <div key={i} className="flex gap-2">
+                <div className="w-0.5 rounded-full bg-blue-500/40 shrink-0" />
+                <p className="text-sm text-foreground/70 leading-relaxed">{entry.text}</p>
               </div>
             ))
           )}

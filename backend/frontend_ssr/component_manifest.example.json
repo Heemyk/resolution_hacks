@@ -1,0 +1,25 @@
+{
+  "$comment": "Example manifest — align with app/schemas/a2ui.py UIBlock.kind",
+  "kinds": {
+    "component": {
+      "description": "Registered React component name + props",
+      "payload": { "name": "string", "props": "object" }
+    },
+    "mermaid": {
+      "description": "Diagram source for Mermaid",
+      "payload": { "source": "string" }
+    },
+    "image": {
+      "description": "URL or retrieved asset reference",
+      "payload": { "url": "string", "alt": "string" }
+    },
+    "markdown": {
+      "description": "Rich text chunk",
+      "payload": { "text": "string" }
+    },
+    "raw_html": {
+      "description": "Sandboxed HTML for A2UI-style attributes (use carefully)",
+      "payload": { "html": "string" }
+    }
+  }
+}

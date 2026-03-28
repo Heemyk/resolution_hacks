@@ -1,0 +1,32 @@
+# Environment
+.env
+.env.local
+*.local
+
+# Python
+backend/.venv/
+backend/__pycache__/
+**/__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# Backend data (transcripts, mini-versioning); keep placeholder
+backend/data/**
+!backend/data/.gitkeep
+
+# Node
+node_modules/
+.next/
+out/
+dist/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
