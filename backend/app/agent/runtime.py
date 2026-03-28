@@ -18,7 +18,7 @@ from app.skills.registry import SkillRegistry
 
 log = structlog.get_logger(__name__)
 
-# Anthropic tool definition for Exa web search
+# Anthropic tool definitions for Exa web search
 EXA_SEARCH_TOOL: dict[str, Any] = {
     "name": "exa_search",
     "description": (
@@ -37,6 +37,33 @@ EXA_SEARCH_TOOL: dict[str, Any] = {
                 "type": "integer",
                 "description": "Number of results to return (default 6)",
                 "default": 6,
+            },
+        },
+        "required": ["query"],
+    },
+}
+
+EXA_IMAGE_SEARCH_TOOL: dict[str, Any] = {
+    "name": "exa_image_search",
+    "description": (
+        "Search the web for images related to a topic using Exa. "
+        "Returns a JSON array of image URLs with titles. "
+        "Use this when the user's transcript or question would benefit from visual illustrations, "
+        "diagrams, photos, or infographics — e.g. showing what something looks like, "
+        "comparing visual examples, or illustrating a concept with real images. "
+        "Emit the results as image UIBlocks: [{\"kind\": \"image\", \"payload\": {\"url\": \"...\", \"caption\": \"...\"}}]"
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": "The image search query",
+            },
+            "num_results": {
+                "type": "integer",
+                "description": "Number of image results to return (default 4)",
+                "default": 4,
             },
         },
         "required": ["query"],
@@ -73,6 +100,16 @@ class AgentRuntime:
             log.error("agent.exa_search_error", query=query, error=str(exc))
             return f"Search failed: {exc}"
 
+    async def _exa_image_search(self, query: str, num_results: int = 4) -> str:
+        if not self._search:
+            return "Web search is not available."
+        try:
+            results = await self._search.search_images(query, num_results=num_results)
+            return self._search.format_images_for_llm(results)
+        except Exception as exc:
+            log.error("agent.exa_image_search_error", query=query, error=str(exc))
+            return f"Image search failed: {exc}"
+
     async def run_turn(
         self,
         *,
@@ -96,8 +133,11 @@ class AgentRuntime:
             extra_messages=extra_messages,
         )
 
-        tools = [EXA_SEARCH_TOOL] if self._search else []
-        tool_fns = {"exa_search": self._exa_search} if self._search else {}
+        tools = [EXA_SEARCH_TOOL, EXA_IMAGE_SEARCH_TOOL] if self._search else []
+        tool_fns = {
+            "exa_search": self._exa_search,
+            "exa_image_search": self._exa_image_search,
+        } if self._search else {}
 
         if tools:
             response = await self._llm.run_with_tools(

@@ -18,7 +18,15 @@
       "Bash(pip --version)",
       "Bash(.venv/Scripts/python -c \"from app.main import app; print\\(''OK''\\)\")",
       "Bash(.venv/Scripts/pip install:*)",
-      "Bash(find C:Usersabk931Documentsresolution_hacksvoice-canvaspackagesuisrc -type f -not -path */node_modules/*)"
+      "Bash(find C:Usersabk931Documentsresolution_hacksvoice-canvaspackagesuisrc -type f -not -path */node_modules/*)",
+      "Bash(git merge:*)",
+      "Bash(npx:*)",
+      "Bash(python -c \"import exa_py; help\\(exa_py.Exa.search_and_contents\\)\")",
+      "Bash(pip show:*)",
+      "Bash(source .venv/Scripts/activate)",
+      "Bash(python -c \"from exa_py import Exa; import inspect; src = inspect.getsource\\(Exa.search_and_contents\\); print\\(src[:3000]\\)\")",
+      "Bash(python -c \"from exa_py import Exa; import inspect; src = inspect.getsource\\(Exa.search_and_contents\\); open\\(''''/tmp/exa_src.txt'''',''''w'''',encoding=''''utf-8''''\\).write\\(src\\)\")",
+      "Read(//tmp/**)"
     ]
   }
 }

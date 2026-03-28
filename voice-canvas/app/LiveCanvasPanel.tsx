@@ -5,6 +5,7 @@ import { useEffect, useId } from "react";
 
 interface LiveCanvasPanelProps {
   sessionId?: string;
+  connected?: boolean;
 }
 
 export function LiveCanvasPanel({ sessionId: externalSessionId }: LiveCanvasPanelProps = {}) {
@@ -27,13 +28,16 @@ export function LiveCanvasPanel({ sessionId: externalSessionId }: LiveCanvasPane
   }, [sessionId, connected]);
 
   return (
-    <div className="flex w-full max-w-3xl flex-col gap-4">
-      <p className="text-sm text-zinc-600 dark:text-zinc-400">
-        SSE:{" "}
-        <span className={connected ? "text-emerald-600" : "text-amber-600"}>
-          {connected ? "connected" : "connecting…"}
+    <div className="h-full w-full relative">
+      {/* SSE status dot */}
+      <div className="absolute top-3 right-3 z-10 flex items-center gap-1.5 pointer-events-none">
+        <div
+          className={`w-1.5 h-1.5 rounded-full ${connected ? "bg-emerald-500" : "bg-amber-400"}`}
+        />
+        <span className="text-[10px] font-mono" style={{ color: "var(--muted-foreground)" }}>
+          {connected ? "live" : "connecting"}
         </span>
-      </p>
+      </div>
       <CanvasHost sessionId={sessionId} apiBase={apiBase} lastEvent={last} />
     </div>
   );

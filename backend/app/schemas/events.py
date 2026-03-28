@@ -6,5 +6,5 @@ from pydantic import BaseModel, Field
 
 
 class SSEEvent(BaseModel):
-    event: Literal["transcript", "render", "agent_log", "ping", "error"]
+    event: Literal["transcript", "render", "agent_log", "ping", "error", "agent_plan", "tool_result"]
     data: dict[str, Any] = Field(default_factory=dict)

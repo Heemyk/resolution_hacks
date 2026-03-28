@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     voice_agent_api_key: str = ""
     voice_agent_base_url: str = ""
     exa_api_key: str = ""
+    agent_name: str = "simon"
 
     # Streaming transcription: coalesce partials before persist callback
     transcript_buffer_max_chars: int = 2000

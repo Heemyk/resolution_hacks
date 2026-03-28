@@ -10,8 +10,14 @@ interface TranscriptEntry {
   timestamp: Date;
 }
 
+interface TranscriptEntry {
+  text: string;
+  timestamp: Date;
+}
+
 interface VoiceChatProps {
   sessionId?: string;
+  onTranscriptEntry?: (entry: TranscriptEntry) => void;
 }
 
 const MODEL = "gemini-3.1-flash-live-preview";
@@ -30,7 +36,7 @@ function pcmBufferToBase64(float32: Float32Array): string {
   return btoa(binary);
 }
 
-export default function VoiceChat({ sessionId = "default" }: VoiceChatProps) {
+export default function VoiceChat({ sessionId = "default", onTranscriptEntry }: VoiceChatProps) {
   const [isConnected, setIsConnected] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
@@ -78,15 +84,17 @@ export default function VoiceChat({ sessionId = "default" }: VoiceChatProps) {
     (text: string) => {
       if (!text.trim()) return;
       ingestTranscript(text);
+      const entry = { text, timestamp: new Date() };
+      onTranscriptEntry?.(entry);
       setTranscript((prev) => {
         const last = prev[prev.length - 1];
         if (last) {
           return [...prev.slice(0, -1), { ...last, text: last.text + text }];
         }
-        return [...prev, { text, timestamp: new Date() }];
+        return [...prev, entry];
       });
     },
-    [ingestTranscript],
+    [ingestTranscript, onTranscriptEntry],
   );
 
   const stopRecording = useCallback(() => {
@@ -273,11 +281,9 @@ export default function VoiceChat({ sessionId = "default" }: VoiceChatProps) {
     };
   }, [appendTranscript, sessionId]);
 
-  const filteredTranscript = transcript.filter((e) => e.text.trim());
-
   return (
     <div className="h-full w-full flex flex-col">
-      {/* Visualizer — fills available height; clicking inner circle toggles recording */}
+      {/* Visualizer — fills full height; clicking inner circle toggles recording */}
       <div className="relative flex-1 min-h-0">
         <AudioVisualizer
           analyserNode={analyserNode}
@@ -298,38 +304,6 @@ export default function VoiceChat({ sessionId = "default" }: VoiceChatProps) {
             />
             <span className="text-xs text-white/70">{status}</span>
           </div>
-        </div>
-      </div>
-
-      {/* Transcript panel — fixed height, scrollable */}
-      <div className="shrink-0 border-t border-foreground/10">
-        <div className="px-4 py-2.5 border-b border-foreground/5 flex items-center justify-between">
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-foreground/40">
-            Transcript
-          </h2>
-          {filteredTranscript.length > 0 && (
-            <button
-              onClick={() => setTranscript([])}
-              className="text-[10px] text-foreground/30 hover:text-foreground/60 transition-colors"
-            >
-              Clear
-            </button>
-          )}
-        </div>
-        <div className="h-40 overflow-y-auto p-4 space-y-2">
-          {filteredTranscript.length === 0 ? (
-            <p className="text-xs text-foreground/20 text-center mt-10">
-              Tap the circle to start recording.
-            </p>
-          ) : (
-            filteredTranscript.map((entry, i) => (
-              <div key={i} className="flex gap-2">
-                <div className="w-0.5 rounded-full bg-blue-500/40 shrink-0" />
-                <p className="text-sm text-foreground/70 leading-relaxed">{entry.text}</p>
-              </div>
-            ))
-          )}
-          <div ref={transcriptEndRef} />
         </div>
       </div>
     </div>

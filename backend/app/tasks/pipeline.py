@@ -1,23 +1,32 @@
 """In-process async pipeline: replaces Celery tasks + Redis locks.
 
+Two-stage agent pattern:
+
 transcript saved
-  → on_transcript_saved()        [asyncio.create_task from request handler]
-  → run_render_job()             [asyncio.Lock per session — no duplicate renders]
-  → AgentRuntime.run_turn()      [streams Claude response]
-  → publish() to event bus       [picked up by open SSE connections]
+  → on_transcript_saved()          [asyncio.create_task from request handler]
+  → run_render_job()               [asyncio.Lock per session — no duplicate renders]
+    ├─ Orchestrator.plan()         [fast Haiku call: classify direct/passive, generate worker prompt]
+    └─ AgentRuntime.run_turn()     [Sonnet tool-use loop: search + canvas blocks]
+  → publish() to event bus         [picked up by open SSE connections]
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
+import re
 import uuid
 
 import structlog
 
 from app.agent.memory import ChatMessage
 from app.agent.runtime import AgentRuntime
-from app.api.deps import get_llm_adapter, get_skill_registry, get_web_search_adapter
+from app.api.deps import (
+    get_llm_adapter,
+    get_orchestrator,
+    get_skill_registry,
+    get_web_search_adapter,
+)
 from app.core.event_bus import publish
 from app.schemas.a2ui import A2UIRenderJob, UIBlock
 from app.schemas.events import SSEEvent
@@ -30,20 +39,27 @@ _render_locks: dict[str, asyncio.Lock] = {}
 # Per-session AgentRuntime — preserves MessageWindow (conversation history)
 _runtimes: dict[str, AgentRuntime] = {}
 
-_SYSTEM_PROMPT = (
-    "You are a real-time voice canvas assistant. "
-    "The user is speaking live — a transcript of what they just said is provided.\n\n"
-    "Respond ONLY with a JSON array of canvas blocks. No prose, no markdown fences, no text outside the JSON.\n\n"
-    "Each block must have one of these shapes:\n"
-    '  {"kind": "markdown", "payload": {"text": "..."}}\n'
-    '  {"kind": "chartjs", "payload": {"config": <Chart.js config object>}}\n\n'
-    "Rules:\n"
-    "- Always include at least one markdown block.\n"
-    "- Add a chartjs block whenever the content involves data, metrics, or comparisons.\n"
-    "- Chart.js config must be pure JSON (no JS functions, no undefined).\n"
-    "- Set responsive: true in chart options.\n"
-    "- Supported chart types: bar, line, pie, doughnut, radar, scatter."
-)
+# ── Worker base prompt (appended to orchestrator-generated prompt) ────────────
+# The orchestrator generates a context-specific plan; this suffix enforces output format.
+
+_WORKER_OUTPUT_RULES = """
+---
+OUTPUT FORMAT (mandatory):
+Respond ONLY with a valid JSON array of canvas blocks. No prose, no markdown fences, \
+no text outside the JSON array.
+
+Each block must be one of:
+  {"kind": "markdown",  "payload": {"text": "..."}}
+  {"kind": "mermaid",   "payload": {"source": "<raw mermaid syntax — no fences>"}}
+  {"kind": "chartjs",   "payload": {"config": <Chart.js config object>}}
+  {"kind": "image",     "payload": {"url": "...", "caption": "...", "source_url": "..."}}
+
+Rules:
+- Always include at least one markdown block.
+- Chart.js config must be pure JSON (no JS functions, no undefined). Set responsive: true.
+- Mermaid source must be raw syntax only — never wrap in ``` fences.
+- Maximum 4 blocks per response to keep the canvas readable.
+"""
 
 
 def _lock(session_id: str) -> asyncio.Lock:
@@ -76,18 +92,16 @@ async def on_transcript_saved(session_id: str, version: int, text: str) -> None:
     """Entry point: called via asyncio.create_task() after a transcript is committed."""
     job_id = str(uuid.uuid4())
     structlog.contextvars.bind_contextvars(session_id=session_id, job_id=job_id)
-    log.info(
-        "pipeline.transcript_scheduled",
-        version=version,
-        user_text=text,
-    )
+    log.info("pipeline.transcript_scheduled", version=version, user_text=text)
     _guarded_task(run_render_job(session_id, job_id, version, text), label="run_render_job")
 
 
 def _parse_blocks(response: str) -> list[UIBlock]:
     """Parse agent JSON response into UIBlocks. Falls back to a single markdown block."""
+    # Strip optional markdown fences that the model may emit despite instructions
+    cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", response.strip(), flags=re.DOTALL)
     try:
-        raw = json.loads(response)
+        raw = json.loads(cleaned)
         if not isinstance(raw, list):
             raise ValueError("expected a JSON array")
         blocks: list[UIBlock] = []
@@ -103,12 +117,38 @@ def _parse_blocks(response: str) -> list[UIBlock]:
 
 
 async def run_render_job(session_id: str, job_id: str, version: int, text: str) -> None:
-    """Run one agent turn and push resulting UIBlocks to open SSE connections."""
+    """Two-stage: orchestrator → worker. Publishes UIBlocks via SSE."""
     structlog.contextvars.bind_contextvars(session_id=session_id, job_id=job_id)
     lock = _lock(session_id)
     log.info("pipeline.render_wait_lock", version=version, user_text=text)
+
     async with lock:
         log.info("pipeline.render_start", version=version, runtimes_cached=len(_runtimes))
+
+        # ── Stage 1: Orchestrator (fast Haiku call) ───────────────────────────
+        orchestrator = get_orchestrator()
+        plan = await orchestrator.plan(text)
+        mode = plan["mode"]
+        focus = plan["focus"]
+        worker_prompt = plan["worker_prompt"] + _WORKER_OUTPUT_RULES
+
+        log.info(
+            "pipeline.orchestrator_done",
+            mode=mode,
+            focus=focus,
+            worker_prompt_len=len(worker_prompt),
+        )
+
+        # Publish an SSE status event so the frontend knows what mode we're in
+        await publish(
+            session_id,
+            SSEEvent(
+                event="agent_plan",
+                data={"mode": mode, "focus": focus},
+            ).model_dump(),
+        )
+
+        # ── Stage 2: Worker (Sonnet tool-use loop) ────────────────────────────
         runtime = _runtime(session_id)
 
         async def _on_tool_result(tool_name: str, tool_input: dict, result: str) -> None:
@@ -122,22 +162,33 @@ async def run_render_job(session_id: str, job_id: str, version: int, text: str) 
         chunks: list[str] = []
         async for chunk in runtime.run_turn(
             user_text=text,
-            system_base=_SYSTEM_PROMPT,
+            system_base=worker_prompt,
             on_tool_result=_on_tool_result,
         ):
             chunks.append(chunk)
-            log.debug("pipeline.llm_chunk", chunk_len=len(chunk), total_chars=sum(len(c) for c in chunks))
+            log.debug(
+                "pipeline.llm_chunk",
+                chunk_len=len(chunk),
+                total_chars=sum(len(c) for c in chunks),
+            )
+
         response = "".join(chunks)
         runtime.window.append(ChatMessage(role="assistant", content=response))
 
         blocks = _parse_blocks(response)
-        log.info("pipeline.blocks_parsed", count=len(blocks), kinds=[b.kind for b in blocks])
+        log.info(
+            "pipeline.blocks_parsed",
+            mode=mode,
+            focus=focus,
+            count=len(blocks),
+            kinds=[b.kind for b in blocks],
+        )
 
         job = A2UIRenderJob(
             session_id=session_id,
             job_id=job_id,
             blocks=blocks,
-            meta={"version": version},
+            meta={"version": version, "mode": mode, "focus": focus},
         )
         ev = SSEEvent(event="render", data={"job": job.model_dump()})
         log.info(
@@ -145,6 +196,8 @@ async def run_render_job(session_id: str, job_id: str, version: int, text: str) 
             response_preview=response[:500],
             response_len=len(response),
             block_count=len(blocks),
+            mode=mode,
+            focus=focus,
         )
         await publish(session_id, ev.model_dump())
-        log.info("pipeline.render_done", version=version)
+        log.info("pipeline.render_done", version=version, mode=mode)
