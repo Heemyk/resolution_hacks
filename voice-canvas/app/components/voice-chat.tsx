@@ -205,25 +205,6 @@ export default function VoiceChat() {
 
   return (
     <div className="w-full max-w-2xl flex flex-col gap-6">
-      {/* API Key input */}
-      {showKeyInput && (
-        <div className="flex gap-2">
-          <input
-            type="password"
-            placeholder="Enter Gemini API key"
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-            className="flex-1 px-4 py-2 rounded-lg border border-foreground/20 bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
-          <button
-            onClick={() => apiKey && setShowKeyInput(false)}
-            className="px-4 py-2 rounded-lg bg-foreground text-background text-sm font-medium hover:opacity-80 transition-opacity"
-          >
-            Save
-          </button>
-        </div>
-      )}
-
       {/* Status bar */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
