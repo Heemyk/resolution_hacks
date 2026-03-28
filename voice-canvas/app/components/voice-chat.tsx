@@ -51,9 +51,24 @@ export default function VoiceChat() {
     transcriptEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [transcript]);
 
+  const enqueueTask = useCallback(
+    (role: "user" | "gemini", text: string) => {
+      fetch("/api/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "enqueue",
+          payload: { role, text, timestamp: new Date().toISOString() },
+        }),
+      }).catch((err) => console.error("Failed to enqueue task:", err));
+    },
+    []
+  );
+
   const appendTranscript = useCallback(
     (role: "user" | "gemini", text: string) => {
       if (!text.trim()) return;
+      enqueueTask(role, text);
       setTranscript((prev) => {
         // Merge consecutive entries from the same role
         const last = prev[prev.length - 1];
@@ -66,7 +81,7 @@ export default function VoiceChat() {
         return [...prev, { role, text, timestamp: new Date() }];
       });
     },
-    []
+    [enqueueTask]
   );
 
   const connect = useCallback(async () => {
