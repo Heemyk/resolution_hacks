@@ -1,17 +1,27 @@
 import Link from "next/link";
+import Image from "next/image";
 
 export default function Home() {
   return (
-    <main className="flex flex-col items-center justify-center min-h-screen p-8 font-[family-name:var(--font-geist-sans)]">
-      <h1 className="text-3xl font-bold mb-2">Voice Canvas</h1>
-      <p className="text-sm text-foreground/60 mb-8">
-        Speak a concept — watch it render live.
+    <main className="flex flex-col items-center justify-center min-h-screen bg-[#f5f0e8]">
+      <Image
+        src="/voice_canvas_logo.png"
+        alt="Voice Canvas"
+        width={80}
+        height={80}
+        className="mb-8 opacity-90"
+      />
+      <h1 className="text-2xl font-semibold tracking-tight text-[#2C2420] mb-2">
+        Voice Canvas
+      </h1>
+      <p className="text-sm text-[#2C2420]/50 mb-10">
+        Speak a course concept, watch it render live.
       </p>
       <Link
         href="/voice"
-        className="px-6 py-3 rounded-full bg-blue-600 text-white font-medium hover:bg-blue-700 transition-colors"
+        className="px-8 py-3 bg-[#2C2420] text-[#f5f0e8] text-sm font-medium tracking-wide hover:bg-[#3D302B] transition-colors"
       >
-        Start Voice Session
+        Start Session
       </Link>
     </main>
   );

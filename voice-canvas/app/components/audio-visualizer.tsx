@@ -30,7 +30,7 @@ vec3 hsv2rgb(vec3 c) {
 void main() {
   vec2 fragCoord = gl_FragCoord.xy;
   vec2 p = (fragCoord - 0.5 * iResolution.xy) / min(iResolution.x, iResolution.y);
-  vec3 c = vec3(0.0, 0.0, 0.1);
+  vec3 c = vec3(0.96, 0.941, 0.910);
 
   for (float i = 0.0; i < 40.0; i++) {
     float vol = texture2D(iChannel0, vec2(i / dots, 0.0)).x;
@@ -51,9 +51,9 @@ void main() {
   float inner = smoothstep(0.26, 0.24, dist);
   if (iRecording > 0.5) {
     float pulse = 0.3 + 0.15 * sin(iTime * 3.0);
-    c += inner * vec3(pulse, 0.02, 0.02);
+    c += inner * vec3(0.65 + pulse * 0.3, 0.28, 0.22);
   } else {
-    c += inner * vec3(0.06, 0.06, 0.12);
+    c += inner * vec3(0.90, 0.87, 0.83);
   }
 
   gl_FragColor = vec4(c, 1.0);

@@ -5,18 +5,17 @@ import VoiceChat from "./voice-chat";
 import { LiveCanvasPanel } from "../LiveCanvasPanel";
 
 export function VoiceCanvasLayout() {
-  // useId is stable across SSR + hydration; Math.random() in useState is not.
   const reactId = useId();
   const sessionId = `session-${reactId.replace(/[^a-zA-Z0-9]/g, "")}`;
 
   return (
-    <div className="h-full w-full grid grid-cols-2">
-      {/* Left: voice visualizer + transcript */}
-      <div className="h-full border-r border-foreground/10 overflow-hidden">
+    <div className="h-full w-full grid grid-cols-2 bg-[#f5f0e8]">
+      {/* Left: voice + transcript */}
+      <div className="h-full border-r border-[#E8DDD8] overflow-hidden">
         <VoiceChat sessionId={sessionId} />
       </div>
 
-      {/* Right: live canvas rendered by the agent via SSE */}
+      {/* Right: live canvas */}
       <div className="h-full overflow-hidden">
         <LiveCanvasPanel sessionId={sessionId} />
       </div>

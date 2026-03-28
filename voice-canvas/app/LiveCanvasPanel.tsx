@@ -27,14 +27,18 @@ export function LiveCanvasPanel({ sessionId: externalSessionId }: LiveCanvasPane
   }, [sessionId, connected]);
 
   return (
-    <div className="flex w-full max-w-3xl flex-col gap-4">
-      <p className="text-sm text-zinc-600 dark:text-zinc-400">
-        SSE:{" "}
-        <span className={connected ? "text-emerald-600" : "text-amber-600"}>
-          {connected ? "connected" : "connecting…"}
+    <div className="h-full w-full flex flex-col bg-[#f5f0e8]">
+      <div className="px-4 py-2.5 border-b border-[#E8DDD8] shrink-0 flex items-center justify-between">
+        <span className="text-xs font-semibold uppercase tracking-wider text-[#2C2420]/40">
+          Canvas
         </span>
-      </p>
-      <CanvasHost sessionId={sessionId} apiBase={apiBase} lastEvent={last} />
+        <span className={`text-[10px] font-medium ${connected ? "text-[#B47C69]" : "text-[#D8CECA]"}`}>
+          {connected ? "live" : "connecting…"}
+        </span>
+      </div>
+      <div className="flex-1 overflow-auto p-6">
+        <CanvasHost sessionId={sessionId} apiBase={apiBase} lastEvent={last} />
+      </div>
     </div>
   );
 }

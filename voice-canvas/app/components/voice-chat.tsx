@@ -3,8 +3,6 @@
 import { loggedFetch, safeJson, structuredLog } from "@resolution/ui";
 import { useState, useRef, useCallback, useEffect } from "react";
 import { GoogleGenAI, Modality, type LiveServerMessage } from "@google/genai";
-import AudioVisualizer from "./audio-visualizer";
-
 interface TranscriptEntry {
   text: string;
   timestamp: Date;
@@ -35,15 +33,12 @@ export default function VoiceChat({ sessionId = "default" }: VoiceChatProps) {
   const [isRecording, setIsRecording] = useState(false);
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
   const [status, setStatus] = useState("Connecting...");
-  const [analyserNode, setAnalyserNode] = useState<AnalyserNode | null>(null);
-
   const sessionRef = useRef<Awaited<
     ReturnType<InstanceType<typeof GoogleGenAI>["live"]["connect"]>
   > | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const workletNodeRef = useRef<AudioWorkletNode | null>(null);
-  const analyserRef = useRef<AnalyserNode | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
+const streamRef = useRef<MediaStream | null>(null);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   const hasConnected = useRef(false);
   const apiBase = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
@@ -93,8 +88,6 @@ export default function VoiceChat({ sessionId = "default" }: VoiceChatProps) {
     structuredLog("info", "voice-chat", "recording.stop", { sessionId });
     workletNodeRef.current?.disconnect();
     workletNodeRef.current = null;
-    analyserRef.current = null;
-    setAnalyserNode(null);
     audioContextRef.current?.close();
     audioContextRef.current = null;
     streamRef.current?.getTracks().forEach((t) => t.stop());
@@ -154,12 +147,6 @@ export default function VoiceChat({ sessionId = "default" }: VoiceChatProps) {
       const workletNode = new AudioWorkletNode(audioContext, "pcm-processor");
       workletNodeRef.current = workletNode;
 
-      const analyser = audioContext.createAnalyser();
-      analyser.fftSize = 512;
-      analyser.smoothingTimeConstant = 0.8;
-      analyserRef.current = analyser;
-      setAnalyserNode(analyser);
-
       workletNode.port.onmessage = (event: MessageEvent<Float32Array>) => {
         if (sessionRef.current) {
           const b64 = pcmBufferToBase64(event.data);
@@ -175,8 +162,7 @@ export default function VoiceChat({ sessionId = "default" }: VoiceChatProps) {
         }
       };
 
-      source.connect(analyser);
-      analyser.connect(workletNode);
+      source.connect(workletNode);
       workletNode.connect(audioContext.destination);
 
       setIsRecording(true);
@@ -276,60 +262,65 @@ export default function VoiceChat({ sessionId = "default" }: VoiceChatProps) {
   const filteredTranscript = transcript.filter((e) => e.text.trim());
 
   return (
-    <div className="h-full w-full flex flex-col">
-      {/* Visualizer — fills available height; clicking inner circle toggles recording */}
-      <div className="relative flex-1 min-h-0">
-        <AudioVisualizer
-          analyserNode={analyserNode}
-          isRecording={isRecording}
-          onCircleClick={toggleRecording}
-        />
-        {/* Status overlay */}
-        <div className="absolute bottom-3 left-0 right-0 flex justify-center pointer-events-none">
-          <div className="flex items-center gap-2 bg-black/50 backdrop-blur-sm rounded-full px-4 py-1.5">
-            <div
-              className={`w-2 h-2 rounded-full ${
-                isRecording
-                  ? "bg-red-500 animate-pulse"
-                  : isConnected
-                    ? "bg-green-500"
-                    : "bg-zinc-400"
-              }`}
-            />
-            <span className="text-xs text-white/70">{status}</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Transcript panel — fixed height, scrollable */}
-      <div className="shrink-0 border-t border-foreground/10">
-        <div className="px-4 py-2.5 border-b border-foreground/5 flex items-center justify-between">
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-foreground/40">
+    <div className="h-full w-full flex flex-col bg-[#f5f0e8]">
+      {/* Transcript — fills available height, on top */}
+      <div className="flex-1 min-h-0 flex flex-col border-b border-[#E8DDD8]">
+        <div className="px-4 py-2.5 border-b border-[#E8DDD8] flex items-center justify-between shrink-0">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-[#2C2420]/40">
             Transcript
           </h2>
           {filteredTranscript.length > 0 && (
             <button
               onClick={() => setTranscript([])}
-              className="text-[10px] text-foreground/30 hover:text-foreground/60 transition-colors"
+              className="text-[10px] text-[#2C2420]/30 hover:text-[#2C2420]/60 transition-colors"
             >
               Clear
             </button>
           )}
         </div>
-        <div className="h-40 overflow-y-auto p-4 space-y-2">
+        <div className="flex-1 overflow-y-auto p-4 space-y-2">
           {filteredTranscript.length === 0 ? (
-            <p className="text-xs text-foreground/20 text-center mt-10">
-              Tap the circle to start recording.
+            <p className="text-xs text-[#2C2420]/30 text-center mt-10">
+              Tap the logo to start recording.
             </p>
           ) : (
             filteredTranscript.map((entry, i) => (
               <div key={i} className="flex gap-2">
-                <div className="w-0.5 rounded-full bg-blue-500/40 shrink-0" />
-                <p className="text-sm text-foreground/70 leading-relaxed">{entry.text}</p>
+                <div className="w-0.5 rounded-full bg-[#B47C69]/50 shrink-0" />
+                <p className="text-sm text-[#2C2420]/70 leading-relaxed">{entry.text}</p>
               </div>
             ))
           )}
           <div ref={transcriptEndRef} />
+        </div>
+      </div>
+
+      {/* Logo button — at bottom */}
+      <div className="shrink-0 flex flex-col items-center justify-center gap-3 py-6">
+        <button
+          onClick={toggleRecording}
+          className={`transition-all duration-200 active:scale-95 ${
+            isRecording ? "opacity-60" : "hover:opacity-70"
+          }`}
+          title={isRecording ? "Stop recording" : "Start recording"}
+        >
+          <img
+            src="/voice_canvas_logo.png"
+            alt="Voice Canvas"
+            className={`w-16 h-16 object-contain ${isRecording ? "animate-pulse" : ""}`}
+          />
+        </button>
+        <div className="flex items-center gap-2">
+          <div
+            className={`w-1.5 h-1.5 rounded-full ${
+              isRecording
+                ? "bg-red-400 animate-pulse"
+                : isConnected
+                  ? "bg-[#B47C69]"
+                  : "bg-[#D8CECA]"
+            }`}
+          />
+          <span className="text-xs text-[#2C2420]/50">{status}</span>
         </div>
       </div>
     </div>
