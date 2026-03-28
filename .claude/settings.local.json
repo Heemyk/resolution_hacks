@@ -14,7 +14,10 @@
       "Bash(docker compose:*)",
       "Bash(/c/Users/abk931/Documents/resolution_hacks/backend/requirements.txt:*)",
       "Bash(grep -r \"redis_events\\\\|celery_app\\\\|locks\\\\|on_transcript_saved\\\\|render_queue\\\\|celery\\\\|redis\" /c/Users/abk931/Documents/resolution_hacks/backend/app --include=*.py -l)",
-      "Bash(.venv/Scripts/python -c \"from app.main import app; from app.core.event_bus import publish, subscribe; from app.tasks.pipeline import on_transcript_saved, run_render_job; print\\(''OK''\\)\")"
+      "Bash(.venv/Scripts/python -c \"from app.main import app; from app.core.event_bus import publish, subscribe; from app.tasks.pipeline import on_transcript_saved, run_render_job; print\\(''OK''\\)\")",
+      "Bash(pip --version)",
+      "Bash(.venv/Scripts/python -c \"from app.main import app; print\\(''OK''\\)\")",
+      "Bash(.venv/Scripts/pip install:*)"
     ]
   }
 }

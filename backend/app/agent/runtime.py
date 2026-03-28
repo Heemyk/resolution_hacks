@@ -7,11 +7,15 @@ from __future__ import annotations
 
 from typing import Any, AsyncIterator
 
+import structlog
+
 from app.agent.context import build_system_prompt
 from app.agent.memory import ChatMessage, MessageWindow
 from app.services.adapters.llm import LLMAdapter
 from app.skills.loader import discover_skill_ids
 from app.skills.registry import SkillRegistry
+
+log = structlog.get_logger(__name__)
 
 
 class AgentRuntime:
@@ -43,6 +47,15 @@ class AgentRuntime:
         self.window.append(ChatMessage(role="user", content=user_text))
         messages: list[dict[str, Any]] = list(extra_messages or [])
         messages.extend(self.window.as_api_messages())
+        log.info(
+            "agent.run_turn",
+            model=self.model,
+            skill_ids=skill_ids,
+            user_text=user_text,
+            system=system,
+            messages=messages,
+            extra_messages=extra_messages,
+        )
         async for chunk in self._llm.stream_messages(
             model=self.model,
             system=system,

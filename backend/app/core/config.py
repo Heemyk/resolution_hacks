@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     transcript_buffer_max_chars: int = 2000
     transcript_buffer_flush_ms: int = 800
 
+    # logging: DEBUG, INFO, WARNING, ERROR (DEBUG → buffer/SSE/LLM chunk detail)
+    log_level: str = "DEBUG"
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]

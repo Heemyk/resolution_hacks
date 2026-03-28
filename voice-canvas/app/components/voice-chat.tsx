@@ -1,5 +1,6 @@
 "use client";
 
+import { loggedFetch, safeJson, structuredLog } from "@resolution/ui";
 import { useState, useRef, useCallback, useEffect } from "react";
 import { GoogleGenAI, Modality, type LiveServerMessage } from "@google/genai";
 import AudioVisualizer from "./audio-visualizer";
@@ -54,7 +55,7 @@ export default function VoiceChat({ sessionId = "default" }: VoiceChatProps) {
   const ingestTranscript = useCallback(
     (text: string) => {
       // Persist to backend → buffer → Celery on_transcript_saved → render pipeline → SSE → canvas
-      fetch(`${apiBase}/api/transcripts/ingest`, {
+      loggedFetch("voice-chat", "transcripts.ingest", `${apiBase}/api/transcripts/ingest`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -63,7 +64,12 @@ export default function VoiceChat({ sessionId = "default" }: VoiceChatProps) {
           text,
           timestamp: new Date().toISOString(),
         }),
-      }).catch((err) => console.error("Failed to ingest transcript:", err));
+      }).catch((err) =>
+        structuredLog("error", "voice-chat", "transcripts.ingest_failed", {
+          sessionId,
+          error: err instanceof Error ? err.message : String(err),
+        }),
+      );
     },
     [apiBase, sessionId],
   );
@@ -84,6 +90,7 @@ export default function VoiceChat({ sessionId = "default" }: VoiceChatProps) {
   );
 
   const stopRecording = useCallback(() => {
+    structuredLog("info", "voice-chat", "recording.stop", { sessionId });
     workletNodeRef.current?.disconnect();
     workletNodeRef.current = null;
     analyserRef.current = null;
@@ -94,11 +101,16 @@ export default function VoiceChat({ sessionId = "default" }: VoiceChatProps) {
     streamRef.current = null;
     setIsRecording(false);
     // Flush buffered transcript chunks so nothing is lost between recording sessions
-    fetch(`${apiBase}/api/transcripts/flush`, {
+    loggedFetch("voice-chat", "transcripts.flush", `${apiBase}/api/transcripts/flush`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ session_id: sessionId }),
-    }).catch((err) => console.error("Failed to flush transcript:", err));
+    }).catch((err) =>
+      structuredLog("error", "voice-chat", "transcripts.flush_failed", {
+        sessionId,
+        error: err instanceof Error ? err.message : String(err),
+      }),
+    );
     // Seal current transcript entry so next recording starts fresh
     setTranscript((prev) => [...prev, { text: "", timestamp: new Date() }]);
     setStatus("Connected — tap the circle to record");
@@ -106,6 +118,7 @@ export default function VoiceChat({ sessionId = "default" }: VoiceChatProps) {
 
   const startRecording = useCallback(async () => {
     if (!sessionRef.current) return;
+    structuredLog("info", "voice-chat", "recording.start", { sessionId });
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -149,8 +162,15 @@ export default function VoiceChat({ sessionId = "default" }: VoiceChatProps) {
 
       workletNode.port.onmessage = (event: MessageEvent<Float32Array>) => {
         if (sessionRef.current) {
+          const b64 = pcmBufferToBase64(event.data);
+          structuredLog("debug", "voice-chat", "gemini.audio_frame", {
+            sessionId,
+            pcm_samples: event.data.length,
+            base64_len: b64.length,
+            mimeType: "audio/pcm;rate=16000",
+          });
           sessionRef.current.sendRealtimeInput({
-            audio: { data: pcmBufferToBase64(event.data), mimeType: "audio/pcm;rate=16000" },
+            audio: { data: b64, mimeType: "audio/pcm;rate=16000" },
           });
         }
       };
@@ -161,11 +181,15 @@ export default function VoiceChat({ sessionId = "default" }: VoiceChatProps) {
 
       setIsRecording(true);
       setStatus("Recording...");
+      structuredLog("info", "voice-chat", "recording.mic_ready", { sessionId });
     } catch (err) {
-      console.error("Mic error:", err);
+      structuredLog("error", "voice-chat", "recording.mic_error", {
+        sessionId,
+        error: err instanceof Error ? err.message : String(err),
+      });
       setStatus(`Mic error: ${err instanceof Error ? err.message : "Unknown"}`);
     }
-  }, []);
+  }, [sessionId]);
 
   const toggleRecording = useCallback(() => {
     if (isRecording) stopRecording();
@@ -179,6 +203,16 @@ export default function VoiceChat({ sessionId = "default" }: VoiceChatProps) {
 
     async function connect() {
       try {
+        structuredLog("info", "voice-chat", "gemini.connect_attempt", {
+          sessionId,
+          model: MODEL,
+          config: {
+            responseModalities: [Modality.AUDIO],
+            inputAudioTranscription: {},
+            systemInstruction:
+              "You are a silent transcription assistant. Respond with only a single word: 'ok'. Keep responses as short as possible.",
+          },
+        });
         const ai = new GoogleGenAI({ apiKey: API_KEY });
         const session = await ai.live.connect({
           model: MODEL,
@@ -190,20 +224,30 @@ export default function VoiceChat({ sessionId = "default" }: VoiceChatProps) {
           },
           callbacks: {
             onopen: () => {
+              structuredLog("info", "voice-chat", "gemini.session_open", { sessionId, model: MODEL });
               setStatus("Connected — tap the circle to record");
               setIsConnected(true);
             },
             onmessage: (message: LiveServerMessage) => {
+              structuredLog("info", "voice-chat", "gemini.server_message", {
+                sessionId,
+                message_json: safeJson(message),
+              });
               const content = message.serverContent;
               if (content?.inputTranscription?.text) {
                 appendTranscript(content.inputTranscription.text);
               }
             },
             onerror: (e: ErrorEvent) => {
-              console.error("Session error:", e);
+              structuredLog("error", "voice-chat", "gemini.session_error", {
+                sessionId,
+                message: e.message,
+                type: e.type,
+              });
               setStatus(`Error: ${e.message ?? "Unknown"}`);
             },
             onclose: () => {
+              structuredLog("warn", "voice-chat", "gemini.session_close", { sessionId });
               setStatus("Disconnected");
               setIsConnected(false);
               setIsRecording(false);
@@ -211,18 +255,23 @@ export default function VoiceChat({ sessionId = "default" }: VoiceChatProps) {
           },
         });
         sessionRef.current = session;
+        structuredLog("info", "voice-chat", "gemini.connect_ok", { sessionId });
       } catch (err) {
-        console.error("Connection failed:", err);
+        structuredLog("error", "voice-chat", "gemini.connect_failed", {
+          sessionId,
+          error: err instanceof Error ? err.message : String(err),
+        });
         setStatus(`Failed: ${err instanceof Error ? err.message : "Unknown error"}`);
       }
     }
 
     connect();
     return () => {
+      structuredLog("info", "voice-chat", "gemini.cleanup", { sessionId });
       sessionRef.current?.close();
       sessionRef.current = null;
     };
-  }, [appendTranscript]);
+  }, [appendTranscript, sessionId]);
 
   const filteredTranscript = transcript.filter((e) => e.text.trim());
 

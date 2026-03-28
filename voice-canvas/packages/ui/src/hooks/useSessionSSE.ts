@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { safeJson, structuredLog } from "../logger";
 
 export type SSEMessage = {
   event: string;
@@ -8,7 +9,7 @@ export type SSEMessage = {
 };
 
 /**
- * Subscribe to backend `/api/sse/stream` for a session (Redis-backed fan-out).
+ * Subscribe to backend `/api/sse/stream` for a session (in-memory fan-out).
  */
 export function useSessionSSE(apiBase: string, sessionId: string | null) {
   const [last, setLast] = useState<SSEMessage | null>(null);
@@ -17,24 +18,46 @@ export function useSessionSSE(apiBase: string, sessionId: string | null) {
 
   useEffect(() => {
     if (!sessionId) return;
-    const url = `${apiBase.replace(/\/$/, "")}/api/sse/stream?session_id=${encodeURIComponent(sessionId)}`;
+    const base = apiBase.replace(/\/$/, "");
+    const url = `${base}/api/sse/stream?session_id=${encodeURIComponent(sessionId)}`;
+    structuredLog("info", "useSessionSSE", "sse.connect_attempt", { sessionId, url, apiBase: base });
     const es = new EventSource(url);
     esRef.current = es;
-    es.onopen = () => setConnected(true);
-    es.onerror = () => setConnected(false);
-    const onAny = (event: string) => (ev: MessageEvent) => {
-      try {
-        const data = ev.data ? JSON.parse(ev.data) : null;
-        setLast({ event, data });
-      } catch {
-        setLast({ event, data: ev.data });
-      }
+    es.onopen = () => {
+      structuredLog("info", "useSessionSSE", "sse.open", { sessionId, url });
+      setConnected(true);
     };
+    es.onerror = () => {
+      structuredLog("warn", "useSessionSSE", "sse.error", {
+        sessionId,
+        url,
+        readyState: es.readyState,
+      });
+      setConnected(false);
+    };
+    const onAny =
+      (eventName: string) =>
+      (ev: MessageEvent) => {
+        let data: unknown;
+        try {
+          data = ev.data ? JSON.parse(ev.data) : null;
+        } catch {
+          data = ev.data;
+        }
+        structuredLog("info", "useSessionSSE", "sse.event", {
+          sessionId,
+          sse_event: eventName,
+          data,
+          raw_data: typeof ev.data === "string" ? ev.data : safeJson(ev.data),
+        });
+        setLast({ event: eventName, data });
+      };
     es.addEventListener("transcript", onAny("transcript"));
     es.addEventListener("render", onAny("render"));
     es.addEventListener("agent_log", onAny("agent_log"));
     es.addEventListener("ping", onAny("ping"));
     return () => {
+      structuredLog("info", "useSessionSSE", "sse.close", { sessionId, url });
       es.close();
       esRef.current = null;
       setConnected(false);

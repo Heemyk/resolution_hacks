@@ -1,6 +1,8 @@
 "use client";
 
+import { useEffect } from "react";
 import type { SSEMessage } from "../hooks/useSessionSSE";
+import { structuredLog } from "../logger";
 
 type Props = {
   sessionId: string;
@@ -12,6 +14,16 @@ type Props = {
  * Renders agent-driven canvas blocks (A2UI-style). Map `render` events to diagrams / components.
  */
 export function CanvasHost({ sessionId, apiBase, lastEvent }: Props) {
+  useEffect(() => {
+    if (!lastEvent) return;
+    structuredLog("debug", "CanvasHost", "canvas.last_event", {
+      sessionId,
+      apiBase,
+      sse_event: lastEvent.event,
+      data: lastEvent.data,
+    });
+  }, [sessionId, apiBase, lastEvent]);
+
   return (
     <section
       className="rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-950"

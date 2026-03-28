@@ -4,9 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-import httpx
-
 from app.core.config import settings
+from app.services.httpx_audit import external_httpx_client
 from app.services.adapters.base import ServiceAdapter
 
 
@@ -25,7 +24,7 @@ class VoiceAgentAdapter(ServiceAdapter):
         headers = {}
         if settings.voice_agent_api_key:
             headers["Authorization"] = f"Bearer {settings.voice_agent_api_key}"
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with external_httpx_client(component="voice_agent") as client:
             r = await client.post(url, json=payload, headers=headers)
             r.raise_for_status()
             return r.json() if r.content else {}

@@ -1,7 +1,7 @@
 "use client";
 
-import { useId } from "react";
-import { CanvasHost, useSessionSSE } from "@resolution/ui";
+import { CanvasHost, structuredLog, useSessionSSE } from "@resolution/ui";
+import { useEffect, useId } from "react";
 
 interface LiveCanvasPanelProps {
   sessionId?: string;
@@ -13,6 +13,18 @@ export function LiveCanvasPanel({ sessionId: externalSessionId }: LiveCanvasPane
   const sessionId =
     externalSessionId ?? `demo-${fallbackId.replace(/[^a-zA-Z0-9]/g, "")}`;
   const { last, connected } = useSessionSSE(apiBase, sessionId);
+
+  useEffect(() => {
+    structuredLog("info", "LiveCanvasPanel", "panel.mount", {
+      sessionId,
+      apiBase,
+      externalSessionId: externalSessionId ?? null,
+    });
+  }, [sessionId, apiBase, externalSessionId]);
+
+  useEffect(() => {
+    structuredLog("debug", "LiveCanvasPanel", "sse.connection_state", { sessionId, connected });
+  }, [sessionId, connected]);
 
   return (
     <div className="flex w-full max-w-3xl flex-col gap-4">

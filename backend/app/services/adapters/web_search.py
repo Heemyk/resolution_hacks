@@ -4,9 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-import httpx
-
 from app.core.config import settings
+from app.services.httpx_audit import external_httpx_client
 from app.services.adapters.base import AdapterError, ServiceAdapter
 
 
@@ -20,7 +19,7 @@ class WebSearchAdapter(ServiceAdapter):
         if not settings.exa_api_key:
             raise AdapterError("EXA_API_KEY not configured")
         # Placeholder: replace with Exa REST contract your team uses
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with external_httpx_client(component="exa_web_search") as client:
             r = await client.post(
                 "https://api.exa.ai/search",
                 headers={"x-api-key": settings.exa_api_key, "Content-Type": "application/json"},
